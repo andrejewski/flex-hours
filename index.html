@@ -1,0 +1,247 @@
+<title>Flex Hours</title>
+
+<style>
+  body {
+    margin: 0px;
+    background-color: #eee;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+  }
+
+  form {
+    max-width: 720px;
+    margin: 30px auto;
+    padding: 30px;
+    background-color: #fff;
+  }
+
+  label {
+    display: block;
+    margin-bottom: 1.5em;
+  }
+
+  label span {
+    display: block;
+    font-weight: bold;
+  }
+
+  input[type=submit] {
+    border: none;
+    border-radius: 2px;
+    font-size: 1em;
+    font-family: inherit;
+    text-align: center;
+    padding: 8px;
+    outline: none;
+    text-decoration: none;
+    background-color: #32ad64;
+    color: #fff;
+  }
+
+  input[type=submit]:hover {
+    background-color: #38c16f;
+  }
+
+  #error {
+    padding: 10px;
+    border-radius: 3px;
+    background-color: #d9534f;
+    color: #fff;
+  }
+
+  #error:empty {
+    display: none;
+  }
+
+  input[type=number],
+  textarea {
+    font-size: 1em;
+    font-family: inherit;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    outline: none;
+    width: 100%;
+    background-color: #fdfdfd;
+  }
+
+  textarea.text-field {
+    resize: vertical;
+  }
+
+  table {
+    max-width: 720px;
+    margin: 30px auto;
+    background-color: #fff;
+  }
+
+  table th {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+  }
+
+  table td {
+    padding: 10px;
+  }
+</style>
+
+<form id='form'>
+  <h1>Flex hours</h1>
+
+  <p id='error'></p>
+
+  <label>
+    <span>People (comma-separated)</span>
+    <textarea id='people' required></textarea>
+  </label>
+
+  <label>
+    <span>Number of people to allocate to early hours</span>
+    <input id='early_count' type='number' value='0' required>
+  </label>
+
+  <label>
+    <span>Number of people to allocate to late hours</span>
+    <input id='late_count' type='number' value='0' required>
+  </label>
+
+  <input type='submit' value='Generate weeks' />
+</form>
+
+<table id='schedule'>
+  <thead>
+    <th>Week #</th>
+    <th>Early hours</th>
+    <th>Late hours</th>
+    <th>Normal hours</th>
+  </thead>
+  <tbody id='rows'></tbody>
+</table>
+
+<script>
+  const $ = x => document.querySelector(x)
+  const $$ = x => document.querySelectorAll(x)
+
+  $('#error').onclick = function () {
+    $('#error').innerText = ''
+  }
+
+  function emitError(message) {
+    $('#error').innerText = message
+  }
+
+  function format(list) {
+    return list.length
+      ? list.join(', ')
+      : '<i>None</i>'
+  }
+
+  function getRandomItem(list, excludeMap) {
+    while (true) {
+      const item = list[Math.floor(Math.random() * list.length)]
+      if (!excludeMap[item]) {
+        return item
+      }
+    }
+  }
+
+  function buildSchedule(plan) {
+    let earlyVisited = {}
+    let earlyCount = 0
+    const len = plan.list.length
+    const results = []
+    for (let i = 0; i < plan.weekCount; i++) {
+      const early = []
+      const earlyMap = {}
+      while (early.length < plan.earlyCount) {
+        if (earlyCount >= len) {
+          earlyVisited = {}
+          earlyCount = 0
+        }
+
+        const item = getRandomItem(plan.list, earlyVisited)
+        early.push(item)
+        earlyMap[item] = true
+        earlyVisited[item] = true
+        earlyCount++
+      }
+
+      let lateVisited = {}
+      let lateCount = 0
+      const late = []
+      const lateMap = {}
+      while (late.length < plan.lateCount) {
+        if (lateCount >= len) {
+          lateVisited = {}
+          lateCount = 0
+        }
+
+        const item = getRandomItem(plan.list, lateVisited)
+        if (!earlyMap[item]) {
+          late.push(item)
+          lateMap[item] = true
+          lateVisited[item] = true
+          lateCount++
+        } else {
+          const allItemsVisited = plan.list.every(item => earlyMap[item] || lateMap[item])
+          if (allItemsVisited) {
+            lateVisited = {}
+            lateCount = 0
+          }
+        }
+      }
+
+      const normal = plan.list.filter(item => !(earlyMap[item] || lateMap[item]))
+      results.push({ early, late, normal })
+    }
+    return results
+  }
+
+  $('#form').onsubmit = function (e) {
+    e.preventDefault()
+
+    const people = $('#people').value.split(',').map(name => name.trim()).filter(name => name)
+    if (!people.length) {
+      return emitError('Please provide a list of people')
+    }
+    const peopleDict = {}
+    for (let i = 0; i < people.length; i++) {
+      const person = people[i]
+      if (peopleDict[person]) {
+        return emitError(`People names must be unique; duplicate "${person}" found`)
+      }
+      peopleDict[person] = true
+    }
+
+    const early = parseInt($('#early_count').value, 10)
+    if (isNaN(early) || early < 0) {
+      return emitError('Number of people to allocate to early hours must be a non-negative integer')
+    }
+
+    const late = parseInt($('#late_count').value, 10)
+    if (isNaN(late) || late < 0) {
+      return emitError('Number of people to allocate to late hours must be a non-negative integer')
+    }
+
+    if (early + late > people.length) {
+      return emitError('You cannot allocate more people than you have on the list')
+    }
+
+    const weeks = 52
+    const results = buildSchedule({
+      list: people,
+      earlyCount: early,
+      lateCount: late,
+      weekCount: weeks
+    })
+
+    const rows = $('#rows')
+    rows.innerHTML = results.map((result, index) =>
+      `<tr>
+        <td>Week ${index + 1}</td>
+        <td>${format(result.early)}</td>
+        <td>${format(result.late)}</td>
+        <td>${format(result.normal)}</td>
+      </tr>`
+    ).join('')
+  }
+</script>
